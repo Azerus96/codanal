@@ -7,10 +7,11 @@ services:
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
-      PLAYWRIGHT_BROWSERS_PATH="$PWD/ms-playwright" \
-      playwright install --with-deps chromium
+      mkdir -p $HOME/.cache/ms-playwright
+      PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright playwright install chromium --with-deps
+      chmod -R 777 $HOME/.cache/ms-playwright
     startCommand: |
-      PLAYWRIGHT_BROWSERS_PATH="$PWD/ms-playwright" \
+      PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright \
       gunicorn --timeout 120 --workers 1 --threads 2 app:app
     envVars:
       - key: PYTHON_VERSION
@@ -20,4 +21,4 @@ services:
       - key: PORT
         value: 10000
       - key: PLAYWRIGHT_BROWSERS_PATH
-        value: "$PWD/ms-playwright"
+        value: "$HOME/.cache/ms-playwright"
