@@ -28,20 +28,20 @@ class CodeAnalyzer:
         try:
             self.logger.info("Checking Playwright installation")
             
-            # Проверяем и устанавливаем браузер если нужно
-            if os.environ.get('RENDER'):
-                browser_path = "/opt/render/.cache/ms-playwright/chromium-1140/chrome-linux/chrome"
-                if not os.path.exists(browser_path):
-                    self.logger.info("Installing Playwright browser")
-                    try:
-                        subprocess.run([
-                            'playwright',
-                            'install',
-                            'chromium'
-                        ], check=True)
-                    except subprocess.CalledProcessError as e:
-                        self.logger.error(f"Failed to install browser: {str(e)}")
-                        raise
+            # Проверяем наличие браузера
+            browser_path = os.path.join(
+                os.environ.get('PLAYWRIGHT_BROWSERS_PATH', ''),
+                'chromium-1140',
+                'chrome-linux',
+                'chrome'
+            )
+            
+            if not os.path.exists(browser_path):
+                self.logger.warning(f"Browser not found at {browser_path}")
+                return {
+                    "status": "error",
+                    "message": "Browser installation required. Please try again in a few minutes."
+                }
 
             self.playwright = sync_playwright().start()
             
@@ -61,30 +61,12 @@ class CodeAnalyzer:
                 ]
             }
 
-            # Установка пути к браузеру
-            if os.environ.get('PLAYWRIGHT_BROWSERS_PATH'):
-                chrome_executable = os.path.join(
-                    os.environ['PLAYWRIGHT_BROWSERS_PATH'],
-                    'chromium-1140',
-                    'chrome-linux',
-                    'chrome'
-                )
-                if os.path.exists(chrome_executable):
-                    self.logger.info(f"Using Chrome at: {chrome_executable}")
-                    browser_options['executable_path'] = chrome_executable
-                else:
-                    self.logger.warning(f"Chrome not found at {chrome_executable}")
-                    # Попытка установить браузер
-                    self.logger.info("Attempting to install browser")
-                    subprocess.run(['playwright', 'install', 'chromium'], check=True)
+            if os.path.exists(browser_path):
+                self.logger.info(f"Using Chrome at: {browser_path}")
+                browser_options['executable_path'] = browser_path
 
-            self.logger.info("Launching browser")
             self.browser = self.playwright.chromium.launch(**browser_options)
-            
-            self.logger.info("Creating new page")
             self.page = self.browser.new_page(viewport={'width': 1920, 'height': 1080})
-            
-            self.logger.info("Setting up page timeouts")
             self.page.set_default_timeout(60000)
             self.page.set_default_navigation_timeout(60000)
             
@@ -286,7 +268,6 @@ def analyze():
             "message": "Repository URL is required"
         })
     
-    # Проверка формата URL
     if not repo_url.startswith('https://github.com/'):
         return jsonify({
             "status": "error",
@@ -297,7 +278,11 @@ def analyze():
     
     try:
         analyzer = CodeAnalyzer()
-        analyzer.start()
+        start_result = analyzer.start()
+        
+        # Проверяем результат запуска
+        if isinstance(start_result, dict) and start_result.get('status') == 'error':
+            return jsonify(start_result)
         
         try:
             results = analyzer.analyze_repository(repo_url)
@@ -327,11 +312,21 @@ def health_check():
         )
         browser_exists = os.path.exists(browser_path)
         
+        # Проверяем доступность GitHub API
+        try:
+            g = Github()
+            rate_limit = g.get_rate_limit()
+            github_available = True
+        except Exception:
+            github_available = False
+        
         return jsonify({
             "status": "healthy",
             "version": "1.0.0",
             "browser_installed": browser_exists,
-            "browser_path": browser_path
+            "browser_path": browser_path,
+            "github_api_available": github_available,
+            "environment": "production" if os.environ.get('RENDER') else "development"
         })
     except Exception as e:
         return jsonify({
