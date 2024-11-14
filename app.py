@@ -28,49 +28,18 @@ class CodeAnalyzer:
         try:
             self.logger.info("Checking Playwright installation")
             
-            # Проверяем наличие браузера
-            playwright_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '')
-            self.logger.info(f"Playwright path: {playwright_path}")
+            # Используем HOME директорию
+            home_dir = os.environ.get('HOME', '')
+            browser_path = os.path.join(home_dir, '.cache', 'ms-playwright', 'chromium-1097', 'chrome-linux', 'chrome')
             
-            # Пытаемся найти браузер
-            possible_paths = [
-                os.path.join(playwright_path, 'chromium-1140', 'chrome-linux', 'chrome'),
-                os.path.join(playwright_path, 'chromium', 'chrome'),
-                os.path.join('ms-playwright', 'chromium-1140', 'chrome-linux', 'chrome'),
-                os.path.join(os.getcwd(), 'ms-playwright', 'chromium-1140', 'chrome-linux', 'chrome')
-            ]
+            self.logger.info(f"Looking for browser at: {browser_path}")
             
-            browser_path = None
-            for path in possible_paths:
-                self.logger.info(f"Checking path: {path}")
-                if os.path.exists(path):
-                    browser_path = path
-                    self.logger.info(f"Found browser at: {path}")
-                    break
-                
-            if not browser_path:
-                self.logger.warning("Browser not found in any expected location")
-                # Попытка установить браузер
-                try:
-                    self.logger.info("Attempting to install browser")
-                    install_command = [
-                        'playwright',
-                        'install',
-                        'chromium',
-                        '--with-deps'
-                    ]
-                    result = subprocess.run(install_command, 
-                                         capture_output=True, 
-                                         text=True)
-                    self.logger.info(f"Install output: {result.stdout}")
-                    if result.stderr:
-                        self.logger.error(f"Install errors: {result.stderr}")
-                except Exception as e:
-                    self.logger.error(f"Failed to install browser: {str(e)}")
-                    return {
-                        "status": "error",
-                        "message": "Failed to install browser. Please try again later."
-                    }
+            if not os.path.exists(browser_path):
+                self.logger.error(f"Browser not found at {browser_path}")
+                return {
+                    "status": "error",
+                    "message": "Browser not found. Please contact administrator."
+                }
 
             self.playwright = sync_playwright().start()
             
@@ -85,12 +54,10 @@ class CodeAnalyzer:
                     '--disable-extensions',
                     '--disable-web-security',
                     '--disable-features=IsolateOrigins,site-per-process',
-                    '--window-size=1920,1080',
-                    '--force-device-scale-factor=1',
                 ]
             }
 
-            if browser_path:
+            if os.path.exists(browser_path):
                 self.logger.info(f"Using Chrome at: {browser_path}")
                 browser_options['executable_path'] = browser_path
 
@@ -332,16 +299,11 @@ def analyze():
 def health_check():
     """Endpoint для проверки работоспособности"""
     try:
-        # Проверяем наличие браузера
-        playwright_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '')
-        possible_paths = [
-            os.path.join(playwright_path, 'chromium-1140', 'chrome-linux', 'chrome'),
-            os.path.join(playwright_path, 'chromium', 'chrome'),
-            os.path.join('ms-playwright', 'chromium-1140', 'chrome-linux', 'chrome'),
-            os.path.join(os.getcwd(), 'ms-playwright', 'chromium-1140', 'chrome-linux', 'chrome')
-        ]
+        home_dir = os.environ.get('HOME', '')
+        browser_path = os.path.join(home_dir, '.cache', 'ms-playwright', 'chromium-1097', 'chrome-linux', 'chrome')
         
-        browser_exists = any(os.path.exists(path) for path in possible_paths)
+        browser_exists = os.path.exists(browser_path)
+        browser_executable = os.access(browser_path, os.X_OK) if browser_exists else False
         
         # Проверяем доступность GitHub API
         try:
@@ -355,9 +317,11 @@ def health_check():
             "status": "healthy",
             "version": "1.0.0",
             "browser_installed": browser_exists,
-            "browser_paths_checked": possible_paths,
+            "browser_executable": browser_executable,
+            "browser_path": browser_path,
             "github_api_available": github_available,
-            "environment": "production" if os.environ.get('RENDER') else "development"
+            "environment": "production" if os.environ.get('RENDER') else "development",
+            "home_dir": home_dir
         })
     except Exception as e:
         return jsonify({
