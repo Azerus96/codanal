@@ -7,10 +7,12 @@ services:
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
-      PLAYWRIGHT_BROWSERS_PATH=/opt/render/.playwright \
-      playwright install chromium --with-deps
+      mkdir -p /opt/render/.cache/ms-playwright
+      chmod -R 777 /opt/render/.cache/ms-playwright
+      PLAYWRIGHT_BROWSERS_PATH=/opt/render/.cache/ms-playwright playwright install chromium --with-deps
     startCommand: |
-      PLAYWRIGHT_BROWSERS_PATH=/opt/render/.playwright \
+      PLAYWRIGHT_BROWSERS_PATH=/opt/render/.cache/ms-playwright \
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0 \
       gunicorn app:app
     envVars:
       - key: PYTHON_VERSION
@@ -20,6 +22,6 @@ services:
       - key: PORT
         value: 10000
       - key: PLAYWRIGHT_BROWSERS_PATH
-        value: /opt/render/.playwright
-    healthCheckPath: /
-    autoDeploy: true
+        value: /opt/render/.cache/ms-playwright
+      - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
+        value: "0"
