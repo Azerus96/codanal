@@ -1,14 +1,17 @@
 services:
   - type: web
-    name: codanal
+    name: github-code-analysis-ai
     env: python
     region: frankfurt
     plan: free
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
-      playwright install --with-deps chromium
-    startCommand: gunicorn app:app
+      PLAYWRIGHT_BROWSERS_PATH=/opt/render/.playwright \
+      playwright install chromium --with-deps
+    startCommand: |
+      PLAYWRIGHT_BROWSERS_PATH=/opt/render/.playwright \
+      gunicorn app:app
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
@@ -16,5 +19,7 @@ services:
         value: .
       - key: PORT
         value: 10000
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: /opt/render/.playwright
     healthCheckPath: /
     autoDeploy: true
