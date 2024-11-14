@@ -1,5 +1,6 @@
 import os
 import sys
+import subprocess
 from flask import Flask, render_template, request, jsonify
 from playwright.sync_api import sync_playwright
 from github import Github
@@ -8,11 +9,14 @@ from urllib.parse import urlparse
 import base64
 
 app = Flask(__name__)
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 class CodeAnalyzer:
-    def __init__(self, ai_service_url="https://gpt-o-1.ru/app/chat/"):
+    def __init__(self, ai_service_url="https://chat.claude.ai"):
         self.ai_service_url = ai_service_url
         self.playwright = None
         self.browser = None
@@ -22,9 +26,25 @@ class CodeAnalyzer:
     def start(self):
         """Инициализация браузера"""
         try:
+            self.logger.info("Checking Playwright installation")
+            
+            # Проверяем и устанавливаем браузер если нужно
+            if os.environ.get('RENDER'):
+                browser_path = "/opt/render/.cache/ms-playwright/chromium-1140/chrome-linux/chrome"
+                if not os.path.exists(browser_path):
+                    self.logger.info("Installing Playwright browser")
+                    try:
+                        subprocess.run([
+                            'playwright',
+                            'install',
+                            'chromium'
+                        ], check=True)
+                    except subprocess.CalledProcessError as e:
+                        self.logger.error(f"Failed to install browser: {str(e)}")
+                        raise
+
             self.playwright = sync_playwright().start()
             
-            # Настройки браузера
             browser_options = {
                 'headless': True,
                 'args': [
@@ -35,31 +55,41 @@ class CodeAnalyzer:
                     '--disable-software-rasterizer',
                     '--disable-extensions',
                     '--disable-web-security',
-                    '--disable-features=IsolateOrigins,site-per-process'
+                    '--disable-features=IsolateOrigins,site-per-process',
+                    '--window-size=1920,1080',
+                    '--force-device-scale-factor=1',
                 ]
             }
-            
-            # Проверяем и устанавливаем путь к браузеру для Render
+
+            # Установка пути к браузеру
             if os.environ.get('PLAYWRIGHT_BROWSERS_PATH'):
-                chrome_path = os.path.join(
+                chrome_executable = os.path.join(
                     os.environ['PLAYWRIGHT_BROWSERS_PATH'],
                     'chromium-1140',
                     'chrome-linux',
                     'chrome'
                 )
-                if os.path.exists(chrome_path):
-                    browser_options['executable_path'] = chrome_path
+                if os.path.exists(chrome_executable):
+                    self.logger.info(f"Using Chrome at: {chrome_executable}")
+                    browser_options['executable_path'] = chrome_executable
                 else:
-                    self.logger.warning(f"Chrome not found at {chrome_path}, using default")
+                    self.logger.warning(f"Chrome not found at {chrome_executable}")
+                    # Попытка установить браузер
+                    self.logger.info("Attempting to install browser")
+                    subprocess.run(['playwright', 'install', 'chromium'], check=True)
 
+            self.logger.info("Launching browser")
             self.browser = self.playwright.chromium.launch(**browser_options)
-            self.page = self.browser.new_page()
             
-            # Дополнительные настройки страницы
-            self.page.set_viewport_size({"width": 1920, "height": 1080})
-            self.page.set_default_timeout(60000)  # 60 секунд таймаут
+            self.logger.info("Creating new page")
+            self.page = self.browser.new_page(viewport={'width': 1920, 'height': 1080})
+            
+            self.logger.info("Setting up page timeouts")
+            self.page.set_default_timeout(60000)
+            self.page.set_default_navigation_timeout(60000)
             
             self._login_to_ai_service()
+            
         except Exception as e:
             self.logger.error(f"Failed to start browser: {str(e)}")
             self.close()
@@ -91,17 +121,6 @@ class CodeAnalyzer:
         try:
             self.logger.info(f"Starting analysis of repository: {repo_url}")
             
-            # Проверка наличия браузера на Render
-            if os.environ.get('PLAYWRIGHT_BROWSERS_PATH'):
-                browser_path = os.path.join(
-                    os.environ['PLAYWRIGHT_BROWSERS_PATH'],
-                    'chromium-1140',
-                    'chrome-linux',
-                    'chrome'
-                )
-                if not os.path.exists(browser_path):
-                    raise Exception(f"Browser not found at {browser_path}")
-            
             # Получаем код из GitHub
             self.logger.info("Fetching repository contents")
             code_files = self._get_repository_contents(repo_url)
@@ -123,7 +142,7 @@ class CodeAnalyzer:
             # Очищаем предыдущий текст, если есть
             textarea.clear()
             
-            # Вводим текст порциями, чтобы избежать проблем с большими текстами
+            # Вводим текст порциями
             chunk_size = 1000
             for i in range(0, len(prompt), chunk_size):
                 chunk = prompt[i:i + chunk_size]
@@ -136,7 +155,7 @@ class CodeAnalyzer:
             # Ждем и получаем ответ
             self.logger.info("Waiting for AI response")
             response = self.page.wait_for_selector('.assistant-message', 
-                                                 timeout=300000)  # 5 минут на ответ
+                                                 timeout=300000)
             
             result = response.text_content()
             self.logger.info("Analysis completed successfully")
@@ -295,6 +314,31 @@ def analyze():
             "message": f"Analysis failed: {error_message}"
         })
 
+@app.route('/health')
+def health_check():
+    """Endpoint для проверки работоспособности"""
+    try:
+        # Проверяем наличие браузера
+        browser_path = os.path.join(
+            os.environ.get('PLAYWRIGHT_BROWSERS_PATH', ''),
+            'chromium-1140',
+            'chrome-linux',
+            'chrome'
+        )
+        browser_exists = os.path.exists(browser_path)
+        
+        return jsonify({
+            "status": "healthy",
+            "version": "1.0.0",
+            "browser_installed": browser_exists,
+            "browser_path": browser_path
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "unhealthy",
+            "error": str(e)
+        }), 500
+
 @app.errorhandler(Exception)
 def handle_error(error):
     """Глобальный обработчик ошибок"""
@@ -303,14 +347,6 @@ def handle_error(error):
         "status": "error",
         "message": "An unexpected error occurred. Please try again later."
     }), 500
-
-@app.route('/health')
-def health_check():
-    """Endpoint для проверки работоспособности"""
-    return jsonify({
-        "status": "healthy",
-        "version": "1.0.0"
-    })
 
 if __name__ == '__main__':
     # Настройка порта для Render
