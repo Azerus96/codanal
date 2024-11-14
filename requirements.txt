@@ -1,6 +1,7 @@
 flask>=3.0.0
 gunicorn>=21.2.0
-playwright>=1.41.0
+playwright==1.41.0
+pytest-playwright==0.4.3
 PyGithub>=2.1.1
 python-dotenv>=1.0.0
 requests>=2.31.0
