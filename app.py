@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class CodeAnalyzer:
-    def __init__(self, ai_service_url="https://chat.claude.ai"):
+    def __init__(self, ai_service_url="https://gpt-o-1.ru/app/chat/"):
         self.ai_service_url = ai_service_url
         self.playwright = None
         self.browser = None
