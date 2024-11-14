@@ -5,19 +5,16 @@ services:
     region: frankfurt
     plan: free
     buildCommand: |
+      pip install --upgrade pip
       pip install -r requirements.txt
       playwright install --with-deps chromium
     startCommand: gunicorn app:app
     envVars:
       - key: PYTHON_VERSION
-        value: 3.9.0
+        value: 3.11.0
       - key: PYTHONPATH
         value: .
       - key: PORT
         value: 10000
     healthCheckPath: /
     autoDeploy: true
-    branch: main
-    numInstances: 1
-    domains:
-      - generated
