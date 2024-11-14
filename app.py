@@ -29,19 +29,48 @@ class CodeAnalyzer:
             self.logger.info("Checking Playwright installation")
             
             # Проверяем наличие браузера
-            browser_path = os.path.join(
-                os.environ.get('PLAYWRIGHT_BROWSERS_PATH', ''),
-                'chromium-1140',
-                'chrome-linux',
-                'chrome'
-            )
+            playwright_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '')
+            self.logger.info(f"Playwright path: {playwright_path}")
             
-            if not os.path.exists(browser_path):
-                self.logger.warning(f"Browser not found at {browser_path}")
-                return {
-                    "status": "error",
-                    "message": "Browser installation required. Please try again in a few minutes."
-                }
+            # Пытаемся найти браузер
+            possible_paths = [
+                os.path.join(playwright_path, 'chromium-1140', 'chrome-linux', 'chrome'),
+                os.path.join(playwright_path, 'chromium', 'chrome'),
+                os.path.join('ms-playwright', 'chromium-1140', 'chrome-linux', 'chrome'),
+                os.path.join(os.getcwd(), 'ms-playwright', 'chromium-1140', 'chrome-linux', 'chrome')
+            ]
+            
+            browser_path = None
+            for path in possible_paths:
+                self.logger.info(f"Checking path: {path}")
+                if os.path.exists(path):
+                    browser_path = path
+                    self.logger.info(f"Found browser at: {path}")
+                    break
+                
+            if not browser_path:
+                self.logger.warning("Browser not found in any expected location")
+                # Попытка установить браузер
+                try:
+                    self.logger.info("Attempting to install browser")
+                    install_command = [
+                        'playwright',
+                        'install',
+                        'chromium',
+                        '--with-deps'
+                    ]
+                    result = subprocess.run(install_command, 
+                                         capture_output=True, 
+                                         text=True)
+                    self.logger.info(f"Install output: {result.stdout}")
+                    if result.stderr:
+                        self.logger.error(f"Install errors: {result.stderr}")
+                except Exception as e:
+                    self.logger.error(f"Failed to install browser: {str(e)}")
+                    return {
+                        "status": "error",
+                        "message": "Failed to install browser. Please try again later."
+                    }
 
             self.playwright = sync_playwright().start()
             
@@ -61,7 +90,7 @@ class CodeAnalyzer:
                 ]
             }
 
-            if os.path.exists(browser_path):
+            if browser_path:
                 self.logger.info(f"Using Chrome at: {browser_path}")
                 browser_options['executable_path'] = browser_path
 
@@ -304,13 +333,15 @@ def health_check():
     """Endpoint для проверки работоспособности"""
     try:
         # Проверяем наличие браузера
-        browser_path = os.path.join(
-            os.environ.get('PLAYWRIGHT_BROWSERS_PATH', ''),
-            'chromium-1140',
-            'chrome-linux',
-            'chrome'
-        )
-        browser_exists = os.path.exists(browser_path)
+        playwright_path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '')
+        possible_paths = [
+            os.path.join(playwright_path, 'chromium-1140', 'chrome-linux', 'chrome'),
+            os.path.join(playwright_path, 'chromium', 'chrome'),
+            os.path.join('ms-playwright', 'chromium-1140', 'chrome-linux', 'chrome'),
+            os.path.join(os.getcwd(), 'ms-playwright', 'chromium-1140', 'chrome-linux', 'chrome')
+        ]
+        
+        browser_exists = any(os.path.exists(path) for path in possible_paths)
         
         # Проверяем доступность GitHub API
         try:
@@ -324,7 +355,7 @@ def health_check():
             "status": "healthy",
             "version": "1.0.0",
             "browser_installed": browser_exists,
-            "browser_path": browser_path,
+            "browser_paths_checked": possible_paths,
             "github_api_available": github_available,
             "environment": "production" if os.environ.get('RENDER') else "development"
         })
